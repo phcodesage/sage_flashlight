@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val NOTIFICATION_ID = 100
+        private const val SOS_NOTIFICATION_ID = 101
         private const val CHANNEL_ID = "flashlight_channel"
         private const val REQUEST_NOTIFICATION_PERMISSION = 123
     }
@@ -77,6 +78,11 @@ class MainActivity : ComponentActivity() {
     private val supportsIntensity: Boolean
         get() = _supportsIntensity.value
     
+    // SOS mode state
+    private val _isSOSModeOn = mutableStateOf(false)
+    private val isSOSModeOn: Boolean
+        get() = _isSOSModeOn.value
+    
     // App settings
     private val _settings = mutableStateOf(Settings())
     private val settings: Settings
@@ -84,6 +90,21 @@ class MainActivity : ComponentActivity() {
     
     // Sound effect for flashlight toggle
     private var toggleSound: MediaPlayer? = null
+    
+    // SOS pattern handler
+    private var sosHandler: android.os.Handler? = null
+    private val sosRunnable = object : Runnable {
+        override fun run() {
+            if (isSOSModeOn) {
+                // Toggle camera flash for SOS pattern
+                toggleSOSPattern()
+                // Schedule next toggle based on current pattern state
+                sosHandler?.postDelayed(this, getSOSDelay())
+            }
+        }
+    }
+    
+    private var sosPatternState = 0 // Tracks position in SOS pattern
     
     private lateinit var cameraManager: CameraManager
     private var cameraId: String? = null
@@ -110,9 +131,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // Handle notification click
-        if (intent.action == "NOTIFICATION_CLICKED") {
-            // Just bring the activity to foreground, don't change flashlight state
+        // Handle notification clicks
+        when (intent.action) {
+            "NOTIFICATION_CLICKED" -> {
+                // Just bring the activity to foreground, don't change flashlight state
+            }
+            "SOS_NOTIFICATION_CLICKED" -> {
+                // Just bring the activity to foreground, don't change SOS state
+            }
         }
     }
     
@@ -264,13 +290,51 @@ class MainActivity : ComponentActivity() {
                             TabRow(selectedTabIndex = selectedTab) {
                                 Tab(
                                     selected = selectedTab == 0,
-                                    onClick = { selectedTab = 0 },
+                                    onClick = { 
+                                        // If switching to Flashlight tab, turn off other modes first
+                                        if (selectedTab != 0) {
+                                            if (isScreenFlashlightOn) {
+                                                toggleScreenBrightness()
+                                            }
+                                            if (isSOSModeOn) {
+                                                toggleSOSMode()
+                                            }
+                                            selectedTab = 0
+                                        }
+                                    },
                                     text = { Text(stringResource(id = R.string.flashlight_tab)) }
                                 )
                                 Tab(
                                     selected = selectedTab == 1,
-                                    onClick = { selectedTab = 1 },
+                                    onClick = { 
+                                        // If switching to Screen Light tab, turn off other modes first
+                                        if (selectedTab != 1) {
+                                            if (isFlashlightOn) {
+                                                toggleFlashlight()
+                                            }
+                                            if (isSOSModeOn) {
+                                                toggleSOSMode()
+                                            }
+                                            selectedTab = 1
+                                        }
+                                    },
                                     text = { Text(stringResource(id = R.string.screen_tab)) }
+                                )
+                                Tab(
+                                    selected = selectedTab == 2,
+                                    onClick = { 
+                                        // If switching to SOS tab, turn off other modes first
+                                        if (selectedTab != 2) {
+                                            if (isFlashlightOn) {
+                                                toggleFlashlight()
+                                            }
+                                            if (isScreenFlashlightOn) {
+                                                toggleScreenBrightness()
+                                            }
+                                            selectedTab = 2
+                                        }
+                                    },
+                                    text = { Text(stringResource(id = R.string.sos_tab)) }
                                 )
                             }
                             
@@ -287,6 +351,10 @@ class MainActivity : ComponentActivity() {
                                 1 -> ScreenBrightnessFlashlight(
                                     isScreenFlashlightOn = isScreenFlashlightOn,
                                     onToggleScreenFlashlight = { toggleScreenBrightness() }
+                                )
+                                2 -> SOSScreen(
+                                    isSOSModeOn = isSOSModeOn,
+                                    onToggleSOSMode = { toggleSOSMode() }
                                 )
                             }
                         }
@@ -568,6 +636,11 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun toggleScreenBrightness() {
+        // If SOS mode is on, turn it off first
+        if (isSOSModeOn) {
+            toggleSOSMode()
+        }
+        
         _isScreenFlashlightOn.value = !_isScreenFlashlightOn.value
         val layoutParams = window.attributes
         if (isScreenFlashlightOn) {
@@ -583,6 +656,113 @@ class MainActivity : ComponentActivity() {
             // Reset to system brightness
             layoutParams.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
             window.attributes = layoutParams
+        }
+    }
+    
+    private fun toggleSOSMode() {
+        // Check for camera permission and flash availability
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            return
+        }
+        
+        if (!hasFlash()) {
+            Toast.makeText(this, "No flashlight available on this device", Toast.LENGTH_LONG).show()
+            return
+        }
+        
+        // Check for API level requirement
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            Toast.makeText(this, "SOS mode requires Android 6.0 or higher", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        // If regular flashlight is on, turn it off first
+        if (isFlashlightOn) {
+            _isFlashlightOn.value = false
+            try {
+                cameraManager.setTorchMode(cameraId!!, false)
+            } catch (e: CameraAccessException) {
+                e.printStackTrace()
+            }
+        }
+        
+        _isSOSModeOn.value = !_isSOSModeOn.value
+        
+        if (isSOSModeOn) {
+            // Initialize SOS pattern
+            sosPatternState = 0
+            sosHandler = android.os.Handler(mainLooper)
+            sosHandler?.post(sosRunnable)
+            
+            // Show notification for SOS mode
+            showSOSNotification()
+            
+            // Play sound effect if enabled
+            if (settings.soundEffects) {
+                playToggleSound()
+            }
+        } else {
+            // Stop SOS pattern and turn off flashlight
+            sosHandler?.removeCallbacks(sosRunnable)
+            try {
+                cameraManager.setTorchMode(cameraId!!, false)
+            } catch (e: CameraAccessException) {
+                e.printStackTrace()
+            }
+            
+            // Hide SOS notification
+            hideSOSNotification()
+        }
+    }
+    
+    private fun toggleSOSPattern() {
+        try {
+            // SOS pattern: ... --- ...
+            // We use camera flash to display the pattern
+            // true for ON, false for OFF
+            when (sosPatternState) {
+                // S (dot, dot, dot)
+                0, 2, 4 -> cameraManager.setTorchMode(cameraId!!, true) // dot ON
+                1, 3, 5 -> cameraManager.setTorchMode(cameraId!!, false) // dot OFF
+                
+                // O (dash, dash, dash)
+                6, 9, 12 -> cameraManager.setTorchMode(cameraId!!, true) // dash ON
+                7, 10, 13 -> cameraManager.setTorchMode(cameraId!!, false) // dash OFF
+                8, 11, 14 -> cameraManager.setTorchMode(cameraId!!, true) // dash ON
+                
+                // S (dot, dot, dot)
+                15, 17, 19 -> cameraManager.setTorchMode(cameraId!!, true) // dot ON
+                16, 18, 20 -> cameraManager.setTorchMode(cameraId!!, false) // dot OFF
+                
+                // Pause before repeating
+                21 -> cameraManager.setTorchMode(cameraId!!, false) // pause
+            }
+            
+            // Increment pattern state or reset to beginning
+            sosPatternState = (sosPatternState + 1) % 22
+        } catch (e: CameraAccessException) {
+            e.printStackTrace()
+            // If there's an error, stop the SOS mode
+            _isSOSModeOn.value = false
+            sosHandler?.removeCallbacks(sosRunnable)
+            Toast.makeText(this, "Error accessing flashlight", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    private fun getSOSDelay(): Long {
+        // Return appropriate delay based on current pattern state
+        return when (sosPatternState) {
+            // Dots are short (250ms)
+            0, 1, 2, 3, 4, 5, 15, 16, 17, 18, 19, 20 -> 250
+            
+            // Dashes are longer (500ms)
+            6, 7, 8, 9, 10, 11, 12, 13, 14 -> 500
+            
+            // Pause between repetitions is longest (1000ms)
+            21 -> 1000
+            
+            else -> 250 // Default
         }
     }
 
@@ -714,6 +894,42 @@ class MainActivity : ComponentActivity() {
         notificationManager.cancel(NOTIFICATION_ID)
     }
     
+    private fun showSOSNotification() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            return
+        }
+        
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            action = "SOS_NOTIFICATION_CLICKED"
+        }
+        
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        
+        val pendingIntent = PendingIntent.getActivity(this, 1, intent, pendingIntentFlags)
+        
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.flashlight_on)
+            .setContentTitle("SOS Signal Active")
+            .setContentText("Emergency SOS signal is being transmitted")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setColor(android.graphics.Color.RED)
+        
+        notificationManager.notify(SOS_NOTIFICATION_ID, builder.build())
+    }
+    
+    private fun hideSOSNotification() {
+        notificationManager.cancel(SOS_NOTIFICATION_ID)
+    }
+    
     override fun onDestroy() {
         super.onDestroy()
         // Turn off flashlight when app is destroyed
@@ -725,14 +941,25 @@ class MainActivity : ComponentActivity() {
             }
         }
         
-        // Hide notification
+        // Hide notifications
         hideFlashlightNotification()
+        hideSOSNotification()
         
         // Reset screen brightness
         if (isScreenFlashlightOn) {
             val layoutParams = window.attributes
             layoutParams.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
             window.attributes = layoutParams
+        }
+        
+        // Stop SOS pattern if active
+        if (isSOSModeOn) {
+            sosHandler?.removeCallbacks(sosRunnable)
+            try {
+                cameraManager.setTorchMode(cameraId!!, false)
+            } catch (e: CameraAccessException) {
+                e.printStackTrace()
+            }
         }
         
         // Release media player resources
@@ -858,15 +1085,13 @@ fun ScreenBrightnessFlashlight(
             verticalArrangement = Arrangement.Center,
             modifier = Modifier.padding(16.dp)
         ) {
-            // Title (only shown when screen is not white)
-            if (!isScreenFlashlightOn) {
-                Text(
-                    text = "Screen Light",
-                    fontSize = 24.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 48.dp)
-                )
-            }
+            // Status text above toggle
+            Text(
+                text = if (isScreenFlashlightOn) stringResource(id = R.string.screen_on) else stringResource(id = R.string.screen_off),
+                fontSize = 24.sp,
+                color = if (isScreenFlashlightOn) Color.White else Color.Gray,
+                modifier = Modifier.padding(bottom = 32.dp)
+            )
             
             // Toggle switch image
             Image(
@@ -878,23 +1103,63 @@ fun ScreenBrightnessFlashlight(
                 ),
                 modifier = Modifier
                     .size(width = 120.dp, height = 60.dp)
-                    .padding(bottom = 32.dp)
                     .clickable { onToggleScreenFlashlight() }
             )
+        }
+    }
+}
+
+@Composable
+fun SOSScreen(
+    isSOSModeOn: Boolean,
+    onToggleSOSMode: () -> Unit
+) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(16.dp)
+        ) {
+            // SOS icon
+            Box(
+                modifier = Modifier
+                    .size(120.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(if (isSOSModeOn) Color.Red else Color.Gray.copy(alpha = 0.3f))
+                    .padding(16.dp)
+                    .clickable { onToggleSOSMode() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "SOS",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 32.sp
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(32.dp))
             
             // Status text
             Text(
-                text = if (isScreenFlashlightOn) "Screen Light is ON - Tap to turn OFF" else "Screen Light is OFF",
+                text = if (isSOSModeOn) "SOS Signal Active" else "Tap to Activate SOS Signal",
                 fontSize = 18.sp,
-                color = if (isScreenFlashlightOn) Color.Black else Color.Unspecified,
-                modifier = Modifier.padding(bottom = 16.dp)
+                textAlign = TextAlign.Center,
+                color = if (isSOSModeOn) Color.Red else Color.Gray
             )
             
-            // Make the entire screen clickable when white to turn off easily
-            if (isScreenFlashlightOn) {
-                Spacer(modifier = Modifier
-                    .fillMaxSize()
-                    .clickable { onToggleScreenFlashlight() }
+            if (!isSOSModeOn) {
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text(
+                    text = "Displays international distress signal",
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(horizontal = 32.dp)
                 )
             }
         }

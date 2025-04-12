@@ -8,6 +8,7 @@
     <string name="screen_off">Screen Light OFF</string>
     <string name="flashlight_tab">Flashlight</string>
     <string name="screen_tab">Screen Light</string>
+    <string name="sos_tab">SOS</string>
     <string name="adjust_intensity">Adjust Intensity</string>
     <string name="intensity_low">Low</string>
     <string name="intensity_high">High</string>
