@@ -1,11 +1,47 @@
 <resources>
     <string name="app_name">SageFlashlight</string>
-    <string name="toggle_flashlight">Turn On</string>
-    <string name="toggle_flashlight_off">Turn Off</string>
-    <string name="flashlight_icon">Flashlight Icon</string>
-    <string name="use_screen_brightness">Use Screen Brightness</string>
-    <string name="screen_brightness_on">Screen Flashlight On</string>
-    <string name="screen_brightness_off">Screen Flashlight Off</string>
+    <string name="toggle_flashlight">Toggle Flashlight</string>
+    <string name="toggle_flashlight_off">Turn Flashlight Off</string>
+    <string name="flashlight_on">Flashlight ON</string>
+    <string name="flashlight_off">Flashlight OFF</string>
+    <string name="screen_on">Screen Light ON</string>
+    <string name="screen_off">Screen Light OFF</string>
     <string name="flashlight_tab">Flashlight</string>
     <string name="screen_tab">Screen Light</string>
+    <string name="adjust_intensity">Adjust Intensity</string>
+    <string name="intensity_low">Low</string>
+    <string name="intensity_high">High</string>
+    <string name="current_intensity">Current: %1$d%%</string>
+    <string name="turn_on_to_adjust">Turn on flashlight to adjust intensity</string>
+    <string name="intensity_not_supported">Intensity adjustment not supported on this device</string>
+    
+    <!-- Menu items -->
+    <string name="menu">Menu</string>
+    <string name="remove_ads">Remove Ads</string>
+    <string name="more_apps">More Apps</string>
+    <string name="send_feedback">Send Feedback</string>
+    <string name="follow_us">Follow Us</string>
+    <string name="invite_friends">Invite Friends</string>
+    <string name="settings">Settings</string>
+    
+    <!-- Settings -->
+    <string name="show_status_bar">Show Status Bar</string>
+    <string name="sound_effects">Sound Effects</string>
+    <string name="turn_on_startup">Turn On at Startup</string>
+    <string name="about">About</string>
+    <string name="settings_title">Settings</string>
+    <string name="about_title">About</string>
+    <string name="about_text">SageFlashlight v1.0
+
+Developed by SageCode
+
+A simple, powerful flashlight app with adjustable brightness and screen light options.</string>
+    <string name="follow_us_title">Follow Us</string>
+    <string name="follow_us_text">Stay updated with our latest apps and features!
+
+Twitter: @sagecode
+Instagram: @sagecodeapps
+Facebook: SageCodeApps</string>
+    <string name="close">Close</string>
+    <string name="save">Save</string>
 </resources>
