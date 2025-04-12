@@ -1,5 +1,9 @@
 package com.example.sageflashlight
 
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -12,6 +16,8 @@ import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -46,6 +52,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        private const val NOTIFICATION_ID = 100
+        private const val CHANNEL_ID = "flashlight_channel"
+        private const val REQUEST_NOTIFICATION_PERMISSION = 123
+    }
+
     // Use MutableState for the flashlight states so Compose will recompose when they change
     private val _isFlashlightOn = mutableStateOf(false)
     private val isFlashlightOn: Boolean
@@ -75,7 +87,8 @@ class MainActivity : ComponentActivity() {
     
     private lateinit var cameraManager: CameraManager
     private var cameraId: String? = null
-    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+    private lateinit var notificationManager: NotificationManagerCompat
+    private val cameraPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
         if (isGranted) {
             // Permission granted, flashlight can be used
             checkTorchIntensitySupport()
@@ -83,7 +96,26 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Camera permission denied", Toast.LENGTH_LONG).show()
         }
     }
+    
+    private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+        if (isGranted) {
+            // Permission granted, notifications can be shown
+            if (isFlashlightOn) {
+                showFlashlightNotification()
+            }
+        } else {
+            Toast.makeText(this, "Notification permission denied", Toast.LENGTH_SHORT).show()
+        }
+    }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Handle notification click
+        if (intent.action == "NOTIFICATION_CLICKED") {
+            // Just bring the activity to foreground, don't change flashlight state
+        }
+    }
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -93,9 +125,13 @@ class MainActivity : ComponentActivity() {
         // Apply status bar setting
         applyStatusBarSetting()
         
-        // Initialize sound effect - using a system sound
+        // Initialize sound effect
         toggleSound = MediaPlayer.create(this, android.provider.Settings.System.DEFAULT_NOTIFICATION_URI)
 
+        // Initialize notification manager
+        notificationManager = NotificationManagerCompat.from(this)
+        createNotificationChannel()
+        
         // Initialize CameraManager
         cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
         try {
@@ -111,7 +147,7 @@ class MainActivity : ComponentActivity() {
 
         // Check for camera permission
         when {
-            ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED -> {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED -> {
                 checkTorchIntensitySupport()
                 
                 // Turn on flashlight at startup if enabled in settings
@@ -121,7 +157,16 @@ class MainActivity : ComponentActivity() {
                 }
             }
             else -> {
-                permissionLauncher.launch(android.Manifest.permission.CAMERA)
+                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+            }
+        }
+        
+        // Check for notification permission on Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            when {
+                ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED -> {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
             }
         }
 
@@ -458,7 +503,7 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun toggleFlashlight() {
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             _isFlashlightOn.value = !_isFlashlightOn.value
             updateFlashlight()
             
@@ -466,8 +511,15 @@ class MainActivity : ComponentActivity() {
             if (settings.soundEffects) {
                 playToggleSound()
             }
+            
+            // Show or hide notification based on flashlight state
+            if (isFlashlightOn) {
+                showFlashlightNotification()
+            } else {
+                hideFlashlightNotification()
+            }
         } else {
-            permissionLauncher.launch(android.Manifest.permission.CAMERA)
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
     
@@ -611,6 +663,57 @@ class MainActivity : ComponentActivity() {
         Toast.makeText(this, "Premium version activated!", Toast.LENGTH_SHORT).show()
     }
     
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = getString(R.string.notification_channel_name)
+            val descriptionText = getString(R.string.notification_channel_description)
+            val importance = NotificationManager.IMPORTANCE_LOW
+            val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
+                description = descriptionText
+                enableLights(true)
+                lightColor = android.graphics.Color.YELLOW
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+    }
+    
+    private fun showFlashlightNotification() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            return
+        }
+        
+        val intent = Intent(this, MainActivity::class.java).apply {
+            // Use these flags to bring existing activity to front without recreating it
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            // Add an action to identify this intent in onNewIntent
+            action = "NOTIFICATION_CLICKED"
+        }
+        
+        val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT
+        }
+        
+        val pendingIntent = PendingIntent.getActivity(this, 0, intent, pendingIntentFlags)
+        
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.flashlight_on)
+            .setContentTitle(getString(R.string.notification_title))
+            .setContentText(getString(R.string.notification_text))
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+        
+        notificationManager.notify(NOTIFICATION_ID, builder.build())
+    }
+    
+    private fun hideFlashlightNotification() {
+        notificationManager.cancel(NOTIFICATION_ID)
+    }
+    
     override fun onDestroy() {
         super.onDestroy()
         // Turn off flashlight when app is destroyed
@@ -621,6 +724,9 @@ class MainActivity : ComponentActivity() {
                 e.printStackTrace()
             }
         }
+        
+        // Hide notification
+        hideFlashlightNotification()
         
         // Reset screen brightness
         if (isScreenFlashlightOn) {

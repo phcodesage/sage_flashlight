@@ -44,4 +44,10 @@ Instagram: @sagecodeapps
 Facebook: SageCodeApps</string>
     <string name="close">Close</string>
     <string name="save">Save</string>
+    
+    <!-- Notification -->
+    <string name="notification_channel_name">Flashlight Status</string>
+    <string name="notification_channel_description">Shows when the flashlight is active</string>
+    <string name="notification_title">Flashlight Active</string>
+    <string name="notification_text">Tap to return to the app</string>
 </resources>
