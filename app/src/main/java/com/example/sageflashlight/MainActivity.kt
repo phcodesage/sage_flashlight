@@ -29,8 +29,15 @@ import com.example.sageflashlight.ui.theme.SageFlashlightTheme
 
 class MainActivity : ComponentActivity() {
 
-    private var isFlashlightOn = false
-    private var isScreenFlashlightOn = false
+    // Use MutableState for the flashlight states so Compose will recompose when they change
+    private val _isFlashlightOn = mutableStateOf(false)
+    private val isFlashlightOn: Boolean
+        get() = _isFlashlightOn.value
+    
+    private val _isScreenFlashlightOn = mutableStateOf(false)
+    private val isScreenFlashlightOn: Boolean
+        get() = _isScreenFlashlightOn.value
+    
     private lateinit var cameraManager: CameraManager
     private var cameraId: String? = null
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
@@ -111,7 +118,7 @@ class MainActivity : ComponentActivity() {
 
     private fun toggleFlashlight() {
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            isFlashlightOn = !isFlashlightOn
+            _isFlashlightOn.value = !_isFlashlightOn.value
             try {
                 cameraManager.setTorchMode(cameraId!!, isFlashlightOn)
             } catch (e: CameraAccessException) {
@@ -124,7 +131,7 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun toggleScreenBrightness() {
-        isScreenFlashlightOn = !isScreenFlashlightOn
+        _isScreenFlashlightOn.value = !_isScreenFlashlightOn.value
         val layoutParams = window.attributes
         if (isScreenFlashlightOn) {
             // Set screen to maximum brightness
@@ -172,37 +179,41 @@ fun FlashlightScreen(
             verticalArrangement = Arrangement.Center,
             modifier = Modifier.padding(16.dp)
         ) {
-            // Flashlight image that changes based on state
+            // Title
+            Text(
+                text = "SageFlashlight",
+                fontSize = 24.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 48.dp)
+            )
+            
+            // Toggle switch image
             Image(
                 painter = painterResource(
-                    id = if (isFlashlightOn) R.drawable.flashlight_on else R.drawable.flashlight_off
+                    id = if (isFlashlightOn) R.drawable.toggle_on else R.drawable.toggle_off
                 ),
-                contentDescription = stringResource(id = R.string.flashlight_icon),
+                contentDescription = stringResource(
+                    id = if (isFlashlightOn) R.string.toggle_flashlight_off else R.string.toggle_flashlight
+                ),
                 modifier = Modifier
-                    .size(200.dp)
+                    .size(width = 120.dp, height = 60.dp)
                     .padding(bottom = 32.dp)
                     .clickable(enabled = hasFlash) { onToggleFlashlight() }
             )
             
+            // Status text
             Text(
-                text = stringResource(
-                    id = if (isFlashlightOn) R.string.toggle_flashlight_off else R.string.toggle_flashlight
-                ),
+                text = if (isFlashlightOn) "Flashlight is ON" else "Flashlight is OFF",
                 fontSize = 18.sp,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
             
-            Button(
-                onClick = { onToggleFlashlight() },
-                enabled = hasFlash,
-                modifier = Modifier.padding(16.dp)
-            ) {
+            if (!hasFlash) {
                 Text(
-                    text = stringResource(
-                        id = if (isFlashlightOn) R.string.toggle_flashlight_off else R.string.toggle_flashlight
-                    ),
-                    fontSize = 18.sp,
-                    modifier = Modifier.padding(8.dp)
+                    text = "No flashlight available on this device",
+                    fontSize = 14.sp,
+                    color = Color.Red,
+                    modifier = Modifier.padding(top = 8.dp)
                 )
             }
         }
@@ -220,39 +231,49 @@ fun ScreenBrightnessFlashlight(
             .background(if (isScreenFlashlightOn) Color.White else Color.Transparent),
         contentAlignment = Alignment.Center
     ) {
+        // Always visible controls for toggling, even when screen is white
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
             modifier = Modifier.padding(16.dp)
         ) {
+            // Title (only shown when screen is not white)
+            if (!isScreenFlashlightOn) {
+                Text(
+                    text = "Screen Light",
+                    fontSize = 24.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 48.dp)
+                )
+            }
+            
+            // Toggle switch image
             Image(
-                painter = painterResource(id = R.drawable.screen_brightness),
-                contentDescription = stringResource(id = R.string.use_screen_brightness),
+                painter = painterResource(
+                    id = if (isScreenFlashlightOn) R.drawable.toggle_on else R.drawable.toggle_off
+                ),
+                contentDescription = stringResource(
+                    id = if (isScreenFlashlightOn) R.string.screen_brightness_off else R.string.screen_brightness_on
+                ),
                 modifier = Modifier
-                    .size(150.dp)
+                    .size(width = 120.dp, height = 60.dp)
                     .padding(bottom = 32.dp)
                     .clickable { onToggleScreenFlashlight() }
             )
             
+            // Status text
             Text(
-                text = stringResource(
-                    id = if (isScreenFlashlightOn) R.string.screen_brightness_off else R.string.screen_brightness_on
-                ),
+                text = if (isScreenFlashlightOn) "Screen Light is ON - Tap to turn OFF" else "Screen Light is OFF",
                 fontSize = 18.sp,
                 color = if (isScreenFlashlightOn) Color.Black else Color.Unspecified,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
             
-            Button(
-                onClick = { onToggleScreenFlashlight() },
-                modifier = Modifier.padding(16.dp)
-            ) {
-                Text(
-                    text = stringResource(
-                        id = if (isScreenFlashlightOn) R.string.screen_brightness_off else R.string.screen_brightness_on
-                    ),
-                    fontSize = 18.sp,
-                    modifier = Modifier.padding(8.dp)
+            // Make the entire screen clickable when white to turn off easily
+            if (isScreenFlashlightOn) {
+                Spacer(modifier = Modifier
+                    .fillMaxSize()
+                    .clickable { onToggleScreenFlashlight() }
                 )
             }
         }
