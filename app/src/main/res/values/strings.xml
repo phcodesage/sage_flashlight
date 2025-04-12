@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">SageFlashlight</string>
+    <string name="toggle_flashlight">Turn On</string>
+    <string name="toggle_flashlight_off">Turn Off</string>
+    <string name="flashlight_icon">Flashlight Icon</string>
+    <string name="use_screen_brightness">Use Screen Brightness</string>
+    <string name="screen_brightness_on">Screen Flashlight On</string>
+    <string name="screen_brightness_off">Screen Flashlight Off</string>
+    <string name="flashlight_tab">Flashlight</string>
+    <string name="screen_tab">Screen Light</string>
+</resources>
